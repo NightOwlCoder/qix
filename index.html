@@ -31,6 +31,12 @@
   body.touch #help { display: none; }
   #turn { display: none; text-align: center; color: #a8a0c0; font-size: 12px; margin: 6px 0 0; }
 
+  body.fs { justify-content: center; height: 100vh; overflow: hidden; }
+  body.fs:not(.touch) #wrap { width: min(100vw, calc((100vh - 90px) * 4 / 3)); }
+  body.fs:not(.touch) #help { display: none; }
+  html:fullscreen { background: #05020c; }
+  html:-webkit-full-screen { background: #05020c; }
+
   body.touch { height: 100dvh; overflow: hidden; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); box-sizing: border-box; }
   body.touch #bar button { padding: 9px 0; font-size: 12px; }
 
@@ -72,8 +78,9 @@
     <button id="musicBtn" tabindex="-1">Music</button>
     <button id="muteBtn" tabindex="-1">Sound</button>
     <button id="shareBtn" tabindex="-1" disabled>Share</button>
+    <button id="fsBtn" tabindex="-1">Full</button>
   </div>
-  <div id="help">Arrows move &middot; hold SPACE to draw fast, SHIFT to draw slow (2&times; points) &middot; don't stop mid-line, the fuse burns &middot; close boxes back to back for a combo &middot; box a Sparx in to cage it for 5s &middot; claim the green orb to turn the Sparx into slow zombies for 8s &middot; from level 3 there are two Qix: split them for a bigger multiplier &middot; claim 75% to clear<br>ENTER play &middot; D daily challenge &middot; P pause &middot; C CRT &middot; R death replay on/off &middot; N music &middot; M sound &middot; S share</div>
+  <div id="help">Arrows move &middot; hold SPACE to draw fast, SHIFT to draw slow (2&times; points) &middot; don't stop mid-line, the fuse burns &middot; close boxes back to back for a combo &middot; box a Sparx in to cage it for 5s &middot; claim the green orb to turn the Sparx into slow zombies for 8s &middot; from level 3 there are two Qix: split them for a bigger multiplier &middot; claim 75% to clear<br>ENTER play &middot; D daily challenge &middot; P pause &middot; F full screen &middot; C CRT &middot; R death replay on/off &middot; N music &middot; M sound &middot; S share</div>
 </div>
 <script>
 const W = 160, H = 120, S = 4, EMPTY = 0, CLAIM = 1, TRAIL = 2, TARGET = 0.75;
@@ -952,7 +959,36 @@ async function share() {
   popup(ok ? 'copied to clipboard' : 'copy failed', W * S / 2, H * S - 30, ok ? '#6f6' : '#f55', 16, 120);
 }
 
+function fsElement() { return document.fullscreenElement || document.webkitFullscreenElement || null; }
+const fsSupported = !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen);
+const standalone = matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || navigator.standalone === true;
+
+async function toggleFullscreen() {
+  if (!fsSupported) {
+    popup('Add to Home Screen for full screen', W * S / 2, H * S / 2, '#ff0', 18, 180);
+    return;
+  }
+  const el = document.documentElement;
+  try {
+    if (fsElement()) await (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    else {
+      await (el.requestFullscreen || el.webkitRequestFullscreen).call(el, { navigationUI: 'hide' });
+      if (screen.orientation && screen.orientation.lock && document.body.classList.contains('touch'))
+        screen.orientation.lock('landscape').catch(err => console.warn('orientation lock refused:', err));
+    }
+  } catch (err) {
+    popup('full screen blocked', W * S / 2, H * S / 2, '#f55', 18, 120);
+    console.warn('fullscreen failed:', err);
+  }
+}
+
+function syncFs() { document.body.classList.toggle('fs', !!fsElement()); syncBar(); }
+document.addEventListener('fullscreenchange', syncFs);
+document.addEventListener('webkitfullscreenchange', syncFs);
+if (standalone) document.getElementById('fsBtn').style.display = 'none';
+
 function syncBar() {
+  document.getElementById('fsBtn').classList.toggle('on', !!fsElement());
   document.getElementById('crtBtn').classList.toggle('on', prefs.crt);
   document.getElementById('replayBtn').classList.toggle('on', prefs.replay);
   document.getElementById('musicBtn').classList.toggle('on', prefs.music);
@@ -964,11 +1000,12 @@ const actions = {
   daily: () => { if (state === 'title' || state === 'over') newGame(true); },
   crt: () => { prefs.crt = !prefs.crt; savePrefs(); },
   replay: () => { prefs.replay = !prefs.replay; savePrefs(); },
+  fullscreen: toggleFullscreen,
   music: () => { prefs.music = !prefs.music; savePrefs(); },
   mute: () => { prefs.muted = !prefs.muted; savePrefs(); },
   share,
 };
-for (const [id, act] of [['playBtn', 'play'], ['dailyBtn', 'daily'], ['crtBtn', 'crt'], ['replayBtn', 'replay'], ['musicBtn', 'music'], ['muteBtn', 'mute'], ['shareBtn', 'share']]) {
+for (const [id, act] of [['playBtn', 'play'], ['dailyBtn', 'daily'], ['crtBtn', 'crt'], ['replayBtn', 'replay'], ['musicBtn', 'music'], ['muteBtn', 'mute'], ['shareBtn', 'share'], ['fsBtn', 'fullscreen']]) {
   const b = document.getElementById(id);
   b.addEventListener('click', e => { audio(); actions[act](); b.blur(); e.preventDefault(); });
 }
@@ -986,6 +1023,7 @@ addEventListener('keydown', e => {
   else if (k === 'p' && state === 'play') paused = !paused;
   else if (k === 'c') actions.crt();
   else if (k === 'r') actions.replay();
+  else if (k === 'f') actions.fullscreen();
   else if (k === 'n') actions.music();
   else if (k === 'm') actions.mute();
   else if (k === 's' && state === 'over') share();

@@ -1,4 +1,4 @@
-const CACHE = 'qix-v2';
+const CACHE = 'qix-v3';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
