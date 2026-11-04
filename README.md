@@ -19,7 +19,9 @@ Claim 75% of the screen by drawing lines out from the border and closing them ba
 | C / R / N / M | CRT filter / death replay / music / sound |
 | S | Share your score (after game over) |
 
-On a phone, drag on the board to steer and hold DRAW or SLOW to cut.
+On a phone, drag anywhere on the screen to steer and hold DRAW or SLOW with your other thumb to cut. Turn the phone sideways for the bigger board, with a button under each thumb. Android phones vibrate on box closes, combos and deaths.
+
+To install it, open the play link on your phone and add it to your home screen (Safari: Share, then Add to Home Screen; Chrome: menu, then Install app). It opens full screen and works offline.
 
 ## Rules
 
