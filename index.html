@@ -129,6 +129,7 @@ const W = 160, H = 120, S = 4, EMPTY = 0, CLAIM = 1, TRAIL = 2, TARGET = 0.75;
 const FUSE_WAIT = 25, FUSE_EVERY = 2, COMBO_WINDOW = 300, MAX_COMBO = 5, TRAP_PCT = 0.9;
 const CAGE_TICKS = 300, CAGE_BONUS = 2000, ZOMBIE_TICKS = 480, ORB_EVERY = 900, ORB_LIFE = 900;
 const REPLAY_FRAMES = 180, REPLAY_SLOW_FRAMES = 45, REPLAY_SLOW_SPEED = 0.3, REPLAY_HOLD = 70;
+const POV_LEN = 100, BOSS_EVERY = 5, BOSS_HP = 3, BOSS_HIT_CELLS = 380, GHOST_EVERY = 2, GHOST_MAX = 12000;
 const DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
 const HS_KEY = 'qix.highscores', PREFS_KEY = 'qix.prefs';
@@ -145,10 +146,11 @@ let score = 0, lives = 3, level = 1, pct = 0, state = 'title', timer = 0, tick =
 let mult = 1, combo = 0, bestCombo = 0, lastClose = -9999, clearReason = '';
 let orb = null, orbTimer = 0, zombieT = 0;
 let frames = [], replay = null;
+let playTick = 0, runRec = {}, ghost = null;
 let particles = [], popups = [], shake = 0, picDirty = true, reveal = false;
 let keys = {}, lastDir = null, newHigh = false, lastGame = null;
 let rand = Math.random, seedBase = 0, daily = false;
-const touch = { dir: null, fast: false, slow: false, id: null, x0: 0, y0: 0 };
+const touch = { dir: null, fast: false, slow: false, id: null, padId: null, x0: 0, y0: 0 };
 
 const prefs = Object.assign({ crt: true, music: true, muted: false, replay: true }, (() => { try { return JSON.parse(localStorage.getItem(PREFS_KEY)); } catch { return null; } })());
 function savePrefs() { try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch {} syncBar(); }
@@ -328,8 +330,16 @@ function newGame(isDaily) {
 }
 
 function makeQix(x, y, vx, vy) {
-  return { a: { x: x - 10, y, vx, vy }, b: { x: x + 10, y: y - 5, vx: -vy, vy: vx }, hist: [], hue: (rand() * 360) | 0 };
+  return { a: { x: x - 10, y, vx, vy }, b: { x: x + 10, y: y - 5, vx: -vy, vy: vx }, hist: [], hue: (rand() * 360) | 0, boss: false, hp: 0, span: 28, speed: 1, flash: 0 };
 }
+
+function makeBoss() {
+  const q = makeQix(W / 2, H / 2, 0.8, 0.6);
+  q.a.x = W / 2 - 22; q.b.x = W / 2 + 22;
+  return Object.assign(q, { boss: true, hp: BOSS_HP, span: 60, speed: 0.75, hue: 0 });
+}
+
+const isBossLevel = () => level % BOSS_EVERY === 0;
 
 function newLevel() {
   g = new Uint8Array(W * H);
@@ -342,7 +352,8 @@ function newLevel() {
   player = { x: W >> 1, y: H - 1, slow: false };
   trail = [];
   fuse = { idle: 0, pos: -1 };
-  qixes = level >= 3
+  qixes = isBossLevel() ? [makeBoss()]
+    : level >= 3
     ? [makeQix(W * 0.3, H * 0.45, 1, 0.7), makeQix(W * 0.7, H * 0.45, -0.8, 1)]
     : [makeQix(W / 2, H / 2, 1, 0.7)];
   resetSparx(60);
@@ -350,8 +361,10 @@ function newLevel() {
   orb = null; orbTimer = 0; zombieT = 0;
   particles = []; popups = []; reveal = false; clearReason = '';
   frames = []; replay = null;
+  playTick = 0; runRec = { level, seed: seedBase, moves: [] }; ghost = loadGhost();
   picDirty = true;
   state = 'play';
+  if (isBossLevel()) { popup('BOSS QIX', W * S / 2, H * S / 2 - 20, '#f33', 34, 150); popup('box it in 3 times to split it', W * S / 2, H * S / 2 + 16, '#fff', 15, 150); sfx.boss(); buzz([60, 40, 60, 40, 200]); }
 }
 
 function resetSparx(baseDelay) {
@@ -537,6 +550,24 @@ function closeTrail() {
   }
 
   pct = 1 - empty / ((W - 2) * (H - 2));
+  const boss = qixes.find(q => q.boss);
+  if (boss && claimed.length >= BOSS_HIT_CELLS) {
+    boss.hp--; boss.flash = 30; shake = 10;
+    const bx = (boss.a.x + boss.b.x) / 2 * S, by = (boss.a.y + boss.b.y) / 2 * S;
+    if (boss.hp > 0) {
+      popup('BOSS HIT! ' + boss.hp + ' left', bx, by, '#f55', 20, 90);
+      score += 3000 * mult;
+      sfx.bossHit(); buzz([50, 30, 50]);
+    } else {
+      const kids = [makeQix(boss.a.x, boss.a.y, 1, 0.6), makeQix(boss.b.x, boss.b.y, -0.9, 0.8)];
+      kids.forEach(k => { k.a.x = k.b.x = (k === kids[0] ? boss.a.x : boss.b.x); k.a.y = k.b.y = (k === kids[0] ? boss.a.y : boss.b.y); k.speed = 1.25; });
+      qixes = kids;
+      score += 15000 * mult;
+      popup('BOSS SPLIT! +' + (15000 * mult).toLocaleString(), bx, by, '#ff0', 24, 120);
+      deathBurst(bx / S, by / S, 200);
+      sfx.split(); buzz([80, 40, 80, 40, 250]);
+    }
+  }
   const split = qixes.length > 1 && qixRegion[0] && qixRegion[1] && qixRegion[0] !== qixRegion[1];
   if (split) {
     clearReason = 'SPLIT!';
@@ -614,12 +645,13 @@ function solidAt(x, y) {
   return !inb(cx, cy) || g[idx(cx, cy)] === CLAIM;
 }
 
-function moveEnd(e, other) {
-  const sp = qixSpeed();
+function moveEnd(e, other, q) {
+  const sp = qixSpeed() * q.speed;
   e.vx += (rand() - 0.5) * 0.3;
   e.vy += (rand() - 0.5) * 0.3;
   const dist = Math.hypot(other.x - e.x, other.y - e.y);
-  if (dist > 28) { e.vx += (other.x - e.x) * 0.02; e.vy += (other.y - e.y) * 0.02; }
+  if (dist > q.span) { e.vx += (other.x - e.x) * 0.02; e.vy += (other.y - e.y) * 0.02; }
+  if (q.boss && dist < q.span * 0.6) { e.vx -= (other.x - e.x) * 0.015; e.vy -= (other.y - e.y) * 0.015; }
   const m = Math.hypot(e.vx, e.vy) || 1;
   e.vx = e.vx / m * sp; e.vy = e.vy / m * sp;
   if (solidAt(e.x + e.vx, e.y)) e.vx = -e.vx; else e.x += e.vx;
@@ -727,11 +759,15 @@ function update() {
   s = hitSpark();
   if (s) return die('sparx', [s.x, s.y]);
   for (const q of qixes) {
-    moveEnd(q.a, q.b); moveEnd(q.b, q.a);
+    moveEnd(q.a, q.b, q); moveEnd(q.b, q.a, q);
+    if (q.flash > 0) q.flash--;
     if (tick % 2 === 0) { q.hist.push([q.a.x, q.a.y, q.b.x, q.b.y]); if (q.hist.length > 14) q.hist.shift(); }
     const hit = trail.length && qixTrailHit(q);
-    if (hit) return die('qix', hit);
+    if (hit) return die('qix', hit, q);
   }
+  playTick++;
+  if (daily && playTick % GHOST_EVERY === 0 && runRec.moves.length < GHOST_MAX) runRec.moves.push(player.x, player.y, trail.length ? 1 : 0);
+  if (ghost && ghost.pos < ghost.moves.length && playTick % GHOST_EVERY === 0) ghost.pos += 3;
   snapshot();
 }
 
